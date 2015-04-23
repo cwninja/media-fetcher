@@ -52,6 +52,9 @@ func (qd * QueuedDownload) Download() {
 
   outputPath := filepath.Join(targetDir, qd.FileName)
   tmpOutputPath := fmt.Sprintf("%s.downloading", outputPath)
+
+  os.MkdirAll(filepath.Dir(outputPath), 0777)
+
   output, err := os.Create(tmpOutputPath)
   if err != nil {
     logger.Println("Error while creating", outputPath, "-", err)
@@ -90,8 +93,6 @@ func main() {
 
   client = redis.NewTCPClient(&redis.Options{
       Addr:     getRedisAddr(),
-      Password: "", // no password set
-      DB:       0,  // use default DB
   })
 
   _, err := client.Ping().Result()
