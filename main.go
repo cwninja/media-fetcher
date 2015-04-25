@@ -1,14 +1,16 @@
 package main
-import "gopkg.in/redis.v2"
-import "log"
 import "encoding/json"
+import "fmt"
+import "io"
+import "log"
 import "math"
+import "net/http"
 import "net/url"
 import "os"
-import "net/http"
 import "path/filepath"
-import "io"
-import "fmt"
+import "strconv"
+
+import "gopkg.in/redis.v2"
 
 
 type QueuedDownload struct {
@@ -75,11 +77,19 @@ func (qd * QueuedDownload) Download() {
   }
 }
 
+var downloadQueue = make(chan * QueuedDownload)
+
 func main() {
   targetDir = os.Getenv("MEDIA_FETCHER_TARGET")
   if targetDir == "" {
     logger.Fatal("MEDIA_FETCHER_TARGET must be set")
   }
+
+  workerCount, _ := strconv.Atoi(os.Getenv("MEDIA_FETCHER_PROCESSES"))
+  if workerCount < 1 {
+    logger.Fatal("MEDIA_FETCHER_PROCESSES must be > 0")
+  }
+
   os.MkdirAll(targetDir, 0777)
 
   if logPath := os.Getenv("MEDIA_FETCHER_LOG"); logPath != "" {
@@ -100,6 +110,15 @@ func main() {
     logger.Fatal(err)
   }
 
+  for i := 0; i < workerCount; i++ {
+    go func() {
+      for {
+        download := <- downloadQueue
+        download.Download()
+      }
+    }()
+  }
+
   for {
     result := client.BLPop(math.MaxInt32, "download-queue")
     val, err := result.Result()
@@ -109,9 +128,7 @@ func main() {
       download := &QueuedDownload{}
       json.Unmarshal([]byte(val[1]), &download)
       logger.Println(download)
-      client.Set("download-queue:processing", download.Url)
-      download.Download()
-      client.Del("download-queue:processing")
+      downloadQueue <- download
     }
   }
 }
